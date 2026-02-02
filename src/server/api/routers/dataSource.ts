@@ -8,6 +8,7 @@ import {
   orgAdminProcedure,
 } from "~/server/api/trpc";
 import { encrypt, decrypt } from "~/server/services/encryption";
+import { introspectPostgresSchema } from "~/server/services/schema-introspector";
 
 /**
  * PostgreSQL connection config schema
@@ -407,5 +408,50 @@ export const dataSourceRouter = createTRPCRouter({
       }
 
       return { success: false, error: "Unsupported database type" };
+    }),
+
+  /**
+   * Introspect the schema of a data source
+   */
+  introspectSchema: orgEditorProcedure
+    .input(z.object({ id: z.string() }))
+    .query(async ({ ctx, input }) => {
+      const dataSource = await ctx.db.dataSource.findUnique({
+        where: { id: input.id },
+        select: {
+          id: true,
+          type: true,
+          configEncrypted: true,
+          organizationId: true,
+        },
+      });
+
+      if (!dataSource) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Data source not found",
+        });
+      }
+
+      if (dataSource.organizationId !== ctx.organization.id) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Data source not found",
+        });
+      }
+
+      // Decrypt the configuration
+      const decrypted = decrypt(dataSource.configEncrypted);
+      const config = JSON.parse(decrypted) as PostgresConfig;
+
+      // Introspect based on type
+      if (dataSource.type === "POSTGRESQL") {
+        return introspectPostgresSchema(config);
+      }
+
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: "Unsupported database type",
+      });
     }),
 });
