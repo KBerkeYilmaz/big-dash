@@ -1,0 +1,288 @@
+// Prisma schema for Better Auth
+// learn more: https://better-auth.com/docs/concepts/database
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// NOTE: When using mysql or sqlserver, uncomment the //@db.Text annotations in model Account below
+// Further reading:
+// https://www.prisma.io/docs/reference/api-reference/prisma-schema-reference#string
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Post {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  createdBy   User   @relation(fields: [createdById], references: [id])
+  createdById String
+
+  @@index([name])
+}
+
+model User {
+  id            String    @id
+  name          String //@db.Text
+  email         String
+  emailVerified Boolean   @default(false)
+  image         String? //@db.Text
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @default(now()) @updatedAt
+  sessions      Session[]
+  accounts      Account[]
+  posts         Post[]
+
+  // Retool Lite relations
+  organizationMemberships OrganizationMember[]
+  createdDataSources      DataSource[]
+  createdResources        Resource[]
+  createdApps             App[]
+  auditLogs               AuditLog[]
+
+  @@unique([email])
+  @@map("user")
+}
+
+model Session {
+  id        String   @id
+  expiresAt DateTime
+  token     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  ipAddress String? //@db.Text
+  userAgent String? //@db.Text
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([token])
+  @@map("session")
+}
+
+model Account {
+  id                    String    @id
+  accountId             String //@db.Text
+  providerId            String //@db.Text
+  userId                String
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  accessToken           String? //@db.Text
+  refreshToken          String? //@db.Text
+  idToken               String? //@db.Text
+  accessTokenExpiresAt  DateTime?
+  refreshTokenExpiresAt DateTime?
+  scope                 String? //@db.Text
+  password              String? //@db.Text
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@map("account")
+}
+
+model Verification {
+  id         String   @id
+  identifier String //@db.Text
+  value      String //@db.Text
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @default(now()) @updatedAt
+
+  @@map("verification")
+}
+
+// ============================================
+// RETOOL LITE - ORGANIZATION & MEMBERS
+// ============================================
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  members     OrganizationMember[]
+  invites     OrganizationInvite[]
+  dataSources DataSource[]
+  resources   Resource[]
+  apps        App[]
+  auditLogs   AuditLog[]
+
+  @@index([slug])
+  @@map("organization")
+}
+
+model OrganizationMember {
+  id        String   @id @default(cuid())
+  role      Role     @default(VIEWER)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId         String
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+  @@map("organization_member")
+}
+
+model OrganizationInvite {
+  id        String   @id @default(cuid())
+  email     String
+  role      Role     @default(VIEWER)
+  token     String   @unique @default(cuid())
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId String
+
+  @@index([email])
+  @@index([token])
+  @@map("organization_invite")
+}
+
+enum Role {
+  OWNER
+  ADMIN
+  EDITOR
+  VIEWER
+}
+
+// ============================================
+// RETOOL LITE - DATA SOURCES
+// ============================================
+
+model DataSource {
+  id              String           @id @default(cuid())
+  name            String
+  type            DataSourceType
+  configEncrypted String           @db.Text
+  status          ConnectionStatus @default(PENDING)
+  lastTestedAt    DateTime?
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId String
+  createdBy      User         @relation(fields: [createdById], references: [id])
+  createdById    String
+  resources      Resource[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+  @@map("data_source")
+}
+
+enum DataSourceType {
+  POSTGRESQL
+  MYSQL
+}
+
+enum ConnectionStatus {
+  PENDING
+  CONNECTED
+  FAILED
+}
+
+// ============================================
+// RETOOL LITE - RESOURCES
+// ============================================
+
+model Resource {
+  id        String       @id @default(cuid())
+  name      String
+  type      ResourceType
+  config    Json
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId String
+  dataSource     DataSource   @relation(fields: [dataSourceId], references: [id], onDelete: Cascade)
+  dataSourceId   String
+  createdBy      User         @relation(fields: [createdById], references: [id])
+  createdById    String
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+  @@index([dataSourceId])
+  @@map("resource")
+}
+
+enum ResourceType {
+  TABLE
+  QUERY
+}
+
+// ============================================
+// RETOOL LITE - APPS & PAGES
+// ============================================
+
+model App {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String
+  description String?
+  isPublished Boolean  @default(false)
+  config      Json     @default("{}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId String
+  createdBy      User         @relation(fields: [createdById], references: [id])
+  createdById    String
+  pages          Page[]
+
+  @@unique([organizationId, slug])
+  @@index([organizationId])
+  @@map("app")
+}
+
+model Page {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String
+  config    Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  app   App    @relation(fields: [appId], references: [id], onDelete: Cascade)
+  appId String
+
+  @@unique([appId, slug])
+  @@index([appId])
+  @@map("page")
+}
+
+// ============================================
+// RETOOL LITE - AUDIT LOGS
+// ============================================
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  action     String
+  entityType String
+  entityId   String?
+  metadata   Json
+  ipAddress  String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organizationId String
+  user           User         @relation(fields: [userId], references: [id])
+  userId         String
+
+  @@index([organizationId, createdAt])
+  @@index([entityType, entityId])
+  @@index([userId])
+  @@map("audit_log")
+}
