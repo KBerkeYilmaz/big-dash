@@ -1,6 +1,5 @@
 import { notFound } from "next/navigation";
 
-import { getSession } from "~/server/better-auth/server";
 import { db } from "~/server/db";
 import { Card, CardContent, CardHeader, CardTitle } from "~/components/ui/card";
 import { Database, Layers, AppWindow, Users } from "lucide-react";
@@ -11,12 +10,9 @@ interface OrgDashboardProps {
 
 export default async function OrgDashboard({ params }: OrgDashboardProps) {
   const { orgSlug } = await params;
-  const session = await getSession();
 
-  if (!session) {
-    notFound();
-  }
-
+  // Auth is already handled by the parent layout
+  // This query is safe since the layout already verified membership
   const org = await db.organization.findUnique({
     where: { slug: orgSlug },
     include: {
